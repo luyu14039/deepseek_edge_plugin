@@ -7,6 +7,7 @@
   var state = {
     lastData: null,
     collapsed: false,
+    cache: {},
     mutationTimer: 0,
     lastPath: location.pathname,
     lastError: ''
@@ -14,6 +15,55 @@
 
   function isUsagePage() {
     return location.pathname === '/usage' || location.pathname.indexOf('/usage/') === 0;
+  }
+
+  function parseDomNumber(text) {
+    if (!text) return null;
+    var cleaned = String(text).replace(/[,，\s\u00a0]/g, '');
+    var match = cleaned.match(/^(-?)(\d+)(?:\.\d+)?$/);
+    if (!match) return null;
+    try {
+      return BigInt(match[1] + match[2]);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function findMainCardValue() {
+    var root = document.querySelector('main') || document.body;
+    var values = root.querySelectorAll('[data-usage-layout-font="value"]');
+    var bestValue = null;
+    for (var i = 0; i < values.length; i++) {
+      var value = parseDomNumber(values[i].textContent);
+      if (value !== null && (bestValue === null || value > bestValue)) {
+        bestValue = value;
+      }
+    }
+    return bestValue;
+  }
+
+  function findCachedDataForDomValue(domValue) {
+    var exact = null;
+    var closest = null;
+    var closestDiff = null;
+
+    for (var url in state.cache) {
+      if (!Object.prototype.hasOwnProperty.call(state.cache, url)) continue;
+      var data = state.cache[url];
+      if (data.total === domValue) {
+        exact = data;
+        continue;
+      }
+      var diff = data.total > domValue ? data.total - domValue : domValue - data.total;
+      if (closestDiff === null || diff < closestDiff) {
+        closestDiff = diff;
+        closest = data;
+      }
+    }
+
+    if (exact) return exact;
+    if (closest && domValue !== 0n && closestDiff * 20n <= domValue) return closest;
+    return null;
   }
 
   function formatInt(value) {
@@ -311,6 +361,14 @@
     refs.meta.textContent = '正在等待页面用量接口…';
   }
 
+  function renderDomOnly(refs, value) {
+    refs.zh.textContent = toChineseNumber(value);
+    refs.ar.textContent = '共 ' + formatInt(value) + ' Token';
+    refs.rate.textContent = '—';
+    refs.barFill.style.width = '0%';
+    refs.meta.textContent = '当前周期数据尚未捕获，请再次切换周期';
+  }
+
   function renderData(refs, data) {
     refs.zh.textContent = toChineseNumber(data.total);
     refs.ar.textContent = '共 ' + formatInt(data.total) + ' Token';
@@ -355,6 +413,7 @@
     }
     if (!data) return;
 
+    state.cache[url] = data;
     state.lastData = data;
     console.debug(
       '[DeepSeek 用量增强] 捕获用量接口:',
@@ -381,11 +440,31 @@
     }
 
     var refs = createCard();
-    if (state.lastData) {
-      renderData(refs, state.lastData);
-    } else {
+    var domValue = findMainCardValue();
+    if (!state.lastData) {
       renderWaiting(refs);
+      return;
     }
+
+    if (domValue !== null && state.lastData.total !== domValue) {
+      var cached = findCachedDataForDomValue(domValue);
+      if (cached) {
+        state.lastData = cached;
+        console.debug(
+          '[DeepSeek 用量增强] 命中缓存周期:',
+          cached.total.toString(),
+          '| 命中率:',
+          cached.hit + cached.miss > 0n
+            ? (Number((cached.hit * 10000n) / (cached.hit + cached.miss)) / 100).toFixed(2) + '%'
+            : '—'
+        );
+      } else {
+        renderDomOnly(refs, domValue);
+        return;
+      }
+    }
+
+    renderData(refs, state.lastData);
   }
 
   function scheduleSync() {
