@@ -3,263 +3,21 @@
 
   var HOST_ATTR = 'data-ds-usage-enh';
   var MUTATION_DEBOUNCE_MS = 250;
-  var STABLE_LABELS = ['每月用量', '用量信息', 'Token 用量', 'Tokens 用量', 'Token Usage'];
 
   var state = {
     lastData: null,
+    collapsed: false,
     mutationTimer: 0,
     lastPath: location.pathname,
-    lastError: '',
-    lastCardText: ''
+    lastError: ''
   };
 
   function isUsagePage() {
     return location.pathname === '/usage' || location.pathname.indexOf('/usage/') === 0;
   }
 
-  function parseDomNumber(text) {
-    if (!text) return null;
-    var cleaned = String(text).replace(/[,，\s\u00a0]/g, '');
-    var match = cleaned.match(/^(-?)(\d+)(?:\.\d+)?$/);
-    if (!match) return null;
-    try {
-      return BigInt(match[1] + match[2]);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  function isLeafNumber(element) {
-    if (element.children.length > 0) return false;
-    var text = (element.textContent || '').trim();
-    if (!/^[\d,，.\s-]+$/.test(text)) return false;
-    return parseDomNumber(text) !== null;
-  }
-
-  function largestNumberLeaf(root) {
-    var best = null;
-    var bestValue = null;
-    var nodes = root.querySelectorAll('div, span, p, h1, h2, h3, h4, strong, b, [role="heading"]');
-    for (var i = 0; i < nodes.length; i++) {
-      var element = nodes[i];
-      if (!isLeafNumber(element)) continue;
-      var value = parseDomNumber(element.textContent);
-      if (bestValue === null || value > bestValue) {
-        best = element;
-        bestValue = value;
-      }
-    }
-    return best;
-  }
-
-  function findCardByLayout() {
-    var root = document.querySelector('main') || document.body;
-    var values = root.querySelectorAll('[data-usage-layout-font="value"]');
-    var best = null;
-    var bestScore = -1;
-
-    for (var i = 0; i < values.length; i++) {
-      var value = parseDomNumber(values[i].textContent);
-      if (value === null) continue;
-      var row = values[i].closest('[data-usage-layout-row="true"]');
-      if (!row) continue;
-
-      var rowText =
-        (row.textContent || '') +
-        ' ' +
-        ((row.parentElement && row.parentElement.textContent) || '');
-      var score = (/Token|用量|Usage|消耗/i.test(rowText) ? 1000000 : 0) + String(value).length;
-      if (score > bestScore) {
-        bestScore = score;
-        best = { element: values[i], container: row };
-      }
-    }
-
-    return best;
-  }
-
-  function findCardByLabel() {
-    var root = document.querySelector('main') || document.body;
-    var labels = root.querySelectorAll('h1, h2, h3, h4, div, span, p, [role="heading"]');
-    for (var i = 0; i < labels.length; i++) {
-      var label = labels[i];
-      var text = (label.textContent || '').trim();
-      var matched = false;
-      for (var j = 0; j < STABLE_LABELS.length; j++) {
-        if (text === STABLE_LABELS[j]) {
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) continue;
-
-      var node = label.parentElement;
-      for (var depth = 0; depth < 6 && node; depth++) {
-        var numberElement = largestNumberLeaf(node);
-        if (numberElement) return { element: numberElement, container: node };
-        node = node.parentElement;
-      }
-    }
-    return null;
-  }
-
-  function findContainerFor(element) {
-    var node = element.parentElement;
-    for (var depth = 0; depth < 5 && node; depth++) {
-      var text = (node.textContent || '').trim();
-      if (/Token|用量|Usage|消耗/i.test(text) && text.length < 400) return node;
-      node = node.parentElement;
-    }
-    return element.parentElement;
-  }
-
-  function numericLeafCount(root) {
-    var count = 0;
-    var nodes = root.querySelectorAll('div, span, p, h1, h2, h3, h4, strong, b, [role="heading"]');
-    for (var i = 0; i < nodes.length; i++) {
-      if (isLeafNumber(nodes[i])) count++;
-    }
-    return count;
-  }
-
-  function findCardGeneric() {
-    var root = document.querySelector('main') || document.body;
-    var nodes = root.querySelectorAll('div, span, p, h1, h2, h3, h4, strong, b, [role="heading"]');
-    var best = null;
-    var bestScore = -1;
-    var bestValue = null;
-
-    for (var i = 0; i < nodes.length; i++) {
-      var element = nodes[i];
-      if (!isLeafNumber(element)) continue;
-
-      var value = parseDomNumber(element.textContent);
-      if (value === null) continue;
-      var score = 0;
-      var labelFound = false;
-      var container = element.parentElement;
-
-      for (var depth = 0; depth < 5 && container; depth++) {
-        var allText = (container.textContent || '').trim();
-        var className = typeof container.className === 'string' ? container.className : '';
-
-        if (
-          /tooltip|echarts|chart|table/i.test(className) ||
-          container.tagName === 'TABLE' ||
-          container.tagName === 'TR' ||
-          container.tagName === 'TD'
-        ) {
-          score -= 2000;
-        }
-
-        if (/Token|用量|Usage|消耗/i.test(allText)) {
-          score += Math.max(0, 1000 - depth * 150);
-          labelFound = true;
-        }
-        if (allText.indexOf('每月用量') !== -1 || allText.indexOf('用量信息') !== -1) {
-          score += 500;
-        }
-        if (allText.length > 600) score -= 200;
-        if (/card|Card|stat|summary/i.test(className)) score += 150;
-
-        var leafCount = numericLeafCount(container);
-        if (leafCount > 4) score -= 300 + leafCount * 20;
-
-        container = container.parentElement;
-      }
-
-      if (!labelFound) continue;
-      score += String(value).length;
-      if (score > bestScore || (score === bestScore && bestValue !== null && value > bestValue)) {
-        bestScore = score;
-        best = element;
-        bestValue = value;
-      }
-    }
-
-    if (!best) return null;
-    return { element: best, container: findContainerFor(best) };
-  }
-
-  function findCard() {
-    var byLayout = findCardByLayout();
-    if (byLayout) return byLayout;
-    var byLabel = findCardByLabel();
-    if (byLabel) return byLabel;
-    return findCardGeneric();
-  }
-
-  function ensureHost(card) {
-    var host = document.querySelector('[' + HOST_ATTR + ']');
-    if (!host) {
-      host = document.createElement('div');
-      host.setAttribute(HOST_ATTR, '');
-      host.style.cssText = [
-        'box-sizing:border-box',
-        'width:100%',
-        'margin:8px 0 0',
-        'padding:0',
-        'font-size:13px',
-        'line-height:1.6',
-        'font-family:inherit',
-        'color:rgb(var(--ds-rgb-label-2, 87 97 135))',
-        'text-align:left',
-        'user-select:none'
-      ].join(';');
-      host.innerHTML =
-        '<div class="ds-usage-enh-zh"></div>' +
-        '<div class="ds-usage-enh-rate"></div>';
-
-      var container = card.container || card.element.parentElement;
-      container.parentNode.insertBefore(host, container.nextSibling);
-    }
-    return host;
-  }
-
-  function getHostLines() {
-    var host = document.querySelector('[' + HOST_ATTR + ']');
-    if (!host) return null;
-    return {
-      zh: host.querySelector('.ds-usage-enh-zh'),
-      rate: host.querySelector('.ds-usage-enh-rate')
-    };
-  }
-
   function formatInt(value) {
     return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  }
-
-  function renderFallback() {
-    var lines = getHostLines();
-    if (!lines) return;
-    var card = findCard();
-    var numberValue = card ? parseDomNumber(card.element.textContent) : null;
-    lines.zh.textContent = numberValue !== null ? toChineseNumber(numberValue) : '中文数字：—';
-    lines.rate.textContent = '缓存命中率：—';
-    lines.rate.title = '等待页面用量数据…';
-  }
-
-  function renderData(data) {
-    var lines = getHostLines();
-    if (!lines) return;
-    lines.zh.textContent = toChineseNumber(data.total);
-    var input = data.hit + data.miss;
-    if (input === 0n) {
-      lines.rate.textContent = '缓存命中率：—';
-      lines.rate.title = '当前周期暂无输入 Token';
-    } else {
-      var basis = (data.hit * 10000n) / input;
-      var percent = Number(basis) / 100;
-      lines.rate.textContent =
-        '缓存命中率：' +
-        percent.toFixed(2) +
-        '%（命中 ' +
-        formatInt(data.hit) +
-        ' / 输入 ' +
-        formatInt(input) +
-        '）';
-      lines.rate.title = '';
-    }
   }
 
   function toBig(value) {
@@ -342,6 +100,237 @@
     return null;
   }
 
+  function cardTemplate() {
+    return [
+      '<style>',
+      ':host { all: initial; }',
+      '.ds-wrap {',
+      '  position: fixed;',
+      '  right: 20px;',
+      '  bottom: 20px;',
+      '  z-index: 2147483646;',
+      '  width: 320px;',
+      '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;',
+      '  color-scheme: light dark;',
+      '  --ds-bg: rgba(255,255,255,0.86);',
+      '  --ds-border: rgba(15,23,42,0.08);',
+      '  --ds-text: #0f172a;',
+      '  --ds-muted: #64748b;',
+      '  --ds-accent: #2563eb;',
+      '  --ds-accent2: #22d3ee;',
+      '  --ds-shadow: 0 12px 32px rgba(15,23,42,0.16);',
+      '}',
+      '@media (prefers-color-scheme: dark) {',
+      '  .ds-wrap {',
+      '    --ds-bg: rgba(15,23,42,0.90);',
+      '    --ds-border: rgba(255,255,255,0.10);',
+      '    --ds-text: #e2e8f0;',
+      '    --ds-muted: #94a3b8;',
+      '    --ds-shadow: 0 12px 32px rgba(0,0,0,0.45);',
+      '  }',
+      '}',
+      '.ds-card {',
+      '  background: var(--ds-bg);',
+      '  border: 1px solid var(--ds-border);',
+      '  border-radius: 16px;',
+      '  box-shadow: var(--ds-shadow);',
+      '  backdrop-filter: blur(14px);',
+      '  -webkit-backdrop-filter: blur(14px);',
+      '  overflow: hidden;',
+      '  transition: box-shadow .2s ease, border-radius .2s ease;',
+      '}',
+      '.ds-card:hover { box-shadow: 0 16px 40px rgba(15,23,42,0.20); }',
+      '@media (prefers-color-scheme: dark) {',
+      '  .ds-card:hover { box-shadow: 0 16px 40px rgba(0,0,0,0.55); }',
+      '}',
+      '.ds-head {',
+      '  display: flex;',
+      '  align-items: center;',
+      '  gap: 8px;',
+      '  padding: 12px 14px;',
+      '  border-bottom: 1px solid var(--ds-border);',
+      '}',
+      '.ds-dot {',
+      '  width: 8px;',
+      '  height: 8px;',
+      '  border-radius: 50%;',
+      '  background: linear-gradient(135deg, var(--ds-accent), var(--ds-accent2));',
+      '  box-shadow: 0 0 8px var(--ds-accent);',
+      '  flex: none;',
+      '}',
+      '.ds-title {',
+      '  flex: 1;',
+      '  font-size: 13px;',
+      '  font-weight: 600;',
+      '  color: var(--ds-text);',
+      '}',
+      '.ds-toggle {',
+      '  border: 0;',
+      '  background: transparent;',
+      '  color: var(--ds-muted);',
+      '  font-size: 16px;',
+      '  line-height: 1;',
+      '  cursor: pointer;',
+      '  padding: 2px 7px;',
+      '  border-radius: 6px;',
+      '  transition: background .15s ease, color .15s ease;',
+      '}',
+      '.ds-toggle:hover { background: var(--ds-border); color: var(--ds-text); }',
+      '.ds-body { padding: 14px; }',
+      '.ds-label {',
+      '  font-size: 12px;',
+      '  color: var(--ds-muted);',
+      '  margin-bottom: 5px;',
+      '}',
+      '.ds-zh {',
+      '  font-size: 17px;',
+      '  font-weight: 600;',
+      '  color: var(--ds-text);',
+      '  line-height: 1.5;',
+      '  letter-spacing: 0.5px;',
+      '  word-break: break-all;',
+      '}',
+      '.ds-ar {',
+      '  font-size: 12px;',
+      '  color: var(--ds-muted);',
+      '  margin-top: 4px;',
+      '  font-variant-numeric: tabular-nums;',
+      '}',
+      '.ds-divider { height: 1px; background: var(--ds-border); margin: 13px 0; }',
+      '.ds-rate-row { display: flex; align-items: baseline; justify-content: space-between; }',
+      '.ds-rate {',
+      '  font-size: 20px;',
+      '  font-weight: 700;',
+      '  color: var(--ds-text);',
+      '  font-variant-numeric: tabular-nums;',
+      '}',
+      '.ds-bar {',
+      '  height: 6px;',
+      '  border-radius: 3px;',
+      '  background: var(--ds-border);',
+      '  margin-top: 10px;',
+      '  overflow: hidden;',
+      '}',
+      '.ds-bar-fill {',
+      '  height: 100%;',
+      '  width: 0%;',
+      '  border-radius: 3px;',
+      '  background: linear-gradient(90deg, var(--ds-accent), var(--ds-accent2));',
+      '  transition: width .45s ease;',
+      '}',
+      '.ds-meta {',
+      '  font-size: 12px;',
+      '  color: var(--ds-muted);',
+      '  margin-top: 8px;',
+      '  font-variant-numeric: tabular-nums;',
+      '}',
+      '.ds-foot {',
+      '  display: flex;',
+      '  align-items: center;',
+      '  gap: 6px;',
+      '  margin-top: 12px;',
+      '  font-size: 11px;',
+      '  color: var(--ds-muted);',
+      '}',
+      '.ds-status {',
+      '  width: 6px;',
+      '  height: 6px;',
+      '  border-radius: 50%;',
+      '  background: #22c55e;',
+      '  box-shadow: 0 0 6px #22c55e;',
+      '  flex: none;',
+      '}',
+      '.ds-wrap.collapsed .ds-body { display: none; }',
+      '.ds-wrap.collapsed .ds-card { border-radius: 999px; }',
+      '.ds-wrap.collapsed .ds-head { border-bottom: 0; }',
+      '</style>',
+      '<div class="ds-wrap' + (state.collapsed ? ' collapsed' : '') + '">',
+      '  <div class="ds-card">',
+      '    <div class="ds-head">',
+      '      <span class="ds-dot"></span>',
+      '      <span class="ds-title">DeepSeek 用量</span>',
+      '      <button class="ds-toggle" type="button" title="收起/展开">' + (state.collapsed ? '+' : '−') + '</button>',
+      '    </div>',
+      '    <div class="ds-body">',
+      '      <div class="ds-label">总 Token（中文）</div>',
+      '      <div class="ds-zh">等待数据…</div>',
+      '      <div class="ds-ar"></div>',
+      '      <div class="ds-divider"></div>',
+      '      <div class="ds-rate-row">',
+      '        <span class="ds-label" style="margin:0">缓存命中率</span>',
+      '        <span class="ds-rate">—</span>',
+      '      </div>',
+      '      <div class="ds-bar"><div class="ds-bar-fill"></div></div>',
+      '      <div class="ds-meta"></div>',
+      '      <div class="ds-foot"><span class="ds-status"></span><span>跟随页面当前周期 · 自动更新</span></div>',
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+  }
+
+  function getCardRefs(host) {
+    var shadow = host.shadowRoot;
+    return {
+      wrap: shadow.querySelector('.ds-wrap'),
+      zh: shadow.querySelector('.ds-zh'),
+      ar: shadow.querySelector('.ds-ar'),
+      rate: shadow.querySelector('.ds-rate'),
+      barFill: shadow.querySelector('.ds-bar-fill'),
+      meta: shadow.querySelector('.ds-meta'),
+      toggle: shadow.querySelector('.ds-toggle')
+    };
+  }
+
+  function createCard() {
+    var host = document.querySelector('[' + HOST_ATTR + ']');
+    if (!host) {
+      host = document.createElement('div');
+      host.setAttribute(HOST_ATTR, '');
+      host.attachShadow({ mode: 'open' }).innerHTML = cardTemplate();
+      document.body.appendChild(host);
+    }
+
+    if (!host.__dsToggleBound) {
+      host.__dsToggleBound = true;
+      var refs = getCardRefs(host);
+      refs.toggle.addEventListener('click', function () {
+        state.collapsed = !state.collapsed;
+        refs.wrap.classList.toggle('collapsed', state.collapsed);
+        refs.toggle.textContent = state.collapsed ? '+' : '−';
+      });
+    }
+    return getCardRefs(host);
+  }
+
+  function renderWaiting(refs) {
+    refs.zh.textContent = '等待数据…';
+    refs.ar.textContent = '';
+    refs.rate.textContent = '—';
+    refs.barFill.style.width = '0%';
+    refs.meta.textContent = '正在等待页面用量接口…';
+  }
+
+  function renderData(refs, data) {
+    refs.zh.textContent = toChineseNumber(data.total);
+    refs.ar.textContent = '共 ' + formatInt(data.total) + ' Token';
+
+    var input = data.hit + data.miss;
+    if (input === 0n) {
+      refs.rate.textContent = '—';
+      refs.barFill.style.width = '0%';
+      refs.meta.textContent = '当前周期暂无输入 Token';
+      return;
+    }
+
+    var basis = (data.hit * 10000n) / input;
+    var percent = Number(basis) / 100;
+    refs.rate.textContent = percent.toFixed(2) + '%';
+    refs.barFill.style.width = Math.min(100, percent) + '%';
+    refs.meta.textContent =
+      '命中 ' + formatInt(data.hit) + ' · 输入 ' + formatInt(input);
+  }
+
   function logError(error) {
     var message = String((error && error.message) || error);
     if (message === state.lastError) return;
@@ -377,7 +366,10 @@
         ? (Number((data.hit * 10000n) / (data.hit + data.miss)) / 100).toFixed(2) + '%'
         : '—'
     );
-    renderData(data);
+
+    if (!isUsagePage()) return;
+    var refs = createCard();
+    renderData(refs, data);
   }
 
   function sync() {
@@ -388,24 +380,11 @@
       return;
     }
 
-    var card = findCard();
-    if (!card) return;
-    ensureHost(card);
-
-    if (state.lastCardText !== card.element.textContent) {
-      state.lastCardText = card.element.textContent;
-      console.debug(
-        '[DeepSeek 用量增强] 定位卡片:',
-        card.element.textContent,
-        '| class:',
-        card.element.className || ''
-      );
-    }
-
+    var refs = createCard();
     if (state.lastData) {
-      renderData(state.lastData);
+      renderData(refs, state.lastData);
     } else {
-      renderFallback();
+      renderWaiting(refs);
     }
   }
 

@@ -1,9 +1,10 @@
 # DeepSeek 用量增强（Chrome/Edge MV3 扩展）
 
-在 DeepSeek 开放平台用量页（`https://platform.deepseek.com/usage`）的“总 Token”主卡片下方：
+在 DeepSeek 开放平台用量页（`https://platform.deepseek.com/usage`）右下角显示一张悬浮卡片：
 
-- 用中文普通数字（一、二、三…，非财务大写）重新显示总 Token 数；
-- 自动计算并显示当前选中月份的缓存命中率（命中 / 输入）。
+- 用中文普通数字（一、二、三…，非财务大写）显示当前周期总 Token 数；
+- 显示缓存命中率、命中/输入明细和进度条；
+- 支持一键收起为胶囊，自动跟随浅色/深色主题。
 
 ## 功能原理
 
