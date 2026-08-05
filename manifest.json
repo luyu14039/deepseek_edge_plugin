@@ -13,7 +13,7 @@
     {
       "matches": ["https://platform.deepseek.com/*"],
       "js": ["number-zh.js", "content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ]
 }

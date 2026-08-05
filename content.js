@@ -427,6 +427,7 @@
     );
 
     if (!isUsagePage()) return;
+    if (!document.body) return;
     var refs = createCard();
     renderData(refs, data);
   }
@@ -436,6 +437,11 @@
       var stale = document.querySelector('[' + HOST_ATTR + ']');
       if (stale) stale.remove();
       state.lastData = null;
+      return;
+    }
+
+    if (!document.body) {
+      scheduleSync();
       return;
     }
 
@@ -478,9 +484,10 @@
     if (!message || message.source !== 'ds-usage-enh-hook' || message.type !== 'api-response') return;
     handleApiMessage(message.url, message.body);
   });
+  window.postMessage({ source: 'ds-usage-enh-content', type: 'ready' }, '*');
 
   var observer = new MutationObserver(scheduleSync);
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
 
   window.addEventListener('popstate', scheduleSync);
 

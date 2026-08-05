@@ -10,17 +10,40 @@
   window.__dsUsageEnhHooked = true;
 
   var TARGET = /\/api\/v0\/usage\/(?:by_api_key\/)?amount(\?|$)/i;
+  var lastResponse = null;
 
   function publish(url, body) {
+    lastResponse = { url: String(url), body: String(body) };
     try {
       window.postMessage(
-        { source: 'ds-usage-enh-hook', type: 'api-response', url: String(url), body: String(body) },
+        { source: 'ds-usage-enh-hook', type: 'api-response', url: lastResponse.url, body: lastResponse.body },
         '*'
       );
     } catch (error) {
       // 忽略转发失败
     }
   }
+
+  window.addEventListener('message', function (event) {
+    if (event.source !== window) return;
+    var message = event.data;
+    if (
+      message &&
+      message.source === 'ds-usage-enh-content' &&
+      message.type === 'ready' &&
+      lastResponse
+    ) {
+      window.postMessage(
+        {
+          source: 'ds-usage-enh-hook',
+          type: 'api-response',
+          url: lastResponse.url,
+          body: lastResponse.body
+        },
+        '*'
+      );
+    }
+  });
 
   var originalFetch = window.fetch;
   if (typeof originalFetch === 'function') {
