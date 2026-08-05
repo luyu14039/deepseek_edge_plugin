@@ -2,37 +2,19 @@
   'use strict';
 
   var HOST_ATTR = 'data-ds-usage-enh';
-  var API_AMOUNT = '/api/v0/usage/amount';
-  var FETCH_TIMEOUT_MS = 15000;
   var MUTATION_DEBOUNCE_MS = 250;
   var STABLE_LABELS = ['每月用量', '用量信息', 'Token 用量', 'Tokens 用量', 'Token Usage'];
 
   var state = {
-    currentPeriod: '',
     lastData: null,
-    controller: null,
     mutationTimer: 0,
     lastPath: location.pathname,
-    lastError: ''
+    lastError: '',
+    lastCardText: ''
   };
 
   function isUsagePage() {
     return location.pathname === '/usage' || location.pathname.indexOf('/usage/') === 0;
-  }
-
-  function getSelectedPeriod() {
-    var selects = document.querySelectorAll('select');
-    for (var i = 0; i < selects.length; i++) {
-      var value =
-        selects[i].value ||
-        (selects[i].selectedOptions &&
-          selects[i].selectedOptions[0] &&
-          selects[i].selectedOptions[0].value) ||
-        '';
-      if (/^\d{4}-\d{1,2}$/.test(value)) return value;
-    }
-    var now = new Date();
-    return now.getUTCFullYear() + '-' + (now.getUTCMonth() + 1);
   }
 
   function parseDomNumber(text) {
@@ -70,6 +52,32 @@
     return best;
   }
 
+  function findCardByLayout() {
+    var root = document.querySelector('main') || document.body;
+    var values = root.querySelectorAll('[data-usage-layout-font="value"]');
+    var best = null;
+    var bestScore = -1;
+
+    for (var i = 0; i < values.length; i++) {
+      var value = parseDomNumber(values[i].textContent);
+      if (value === null) continue;
+      var row = values[i].closest('[data-usage-layout-row="true"]');
+      if (!row) continue;
+
+      var rowText =
+        (row.textContent || '') +
+        ' ' +
+        ((row.parentElement && row.parentElement.textContent) || '');
+      var score = (/Token|用量|Usage|消耗/i.test(rowText) ? 1000000 : 0) + String(value).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { element: values[i], container: row };
+      }
+    }
+
+    return best;
+  }
+
   function findCardByLabel() {
     var root = document.querySelector('main') || document.body;
     var labels = root.querySelectorAll('h1, h2, h3, h4, div, span, p, [role="heading"]');
@@ -103,6 +111,15 @@
       node = node.parentElement;
     }
     return element.parentElement;
+  }
+
+  function numericLeafCount(root) {
+    var count = 0;
+    var nodes = root.querySelectorAll('div, span, p, h1, h2, h3, h4, strong, b, [role="heading"]');
+    for (var i = 0; i < nodes.length; i++) {
+      if (isLeafNumber(nodes[i])) count++;
+    }
+    return count;
   }
 
   function findCardGeneric() {
@@ -164,16 +181,9 @@
     return { element: best, container: findContainerFor(best) };
   }
 
-  function numericLeafCount(root) {
-    var count = 0;
-    var nodes = root.querySelectorAll('div, span, p, h1, h2, h3, h4, strong, b, [role="heading"]');
-    for (var i = 0; i < nodes.length; i++) {
-      if (isLeafNumber(nodes[i])) count++;
-    }
-    return count;
-  }
-
   function findCard() {
+    var byLayout = findCardByLayout();
+    if (byLayout) return byLayout;
     var byLabel = findCardByLabel();
     if (byLabel) return byLabel;
     return findCardGeneric();
@@ -186,6 +196,7 @@
       host.setAttribute(HOST_ATTR, '');
       host.style.cssText = [
         'box-sizing:border-box',
+        'width:100%',
         'margin:8px 0 0',
         'padding:0',
         'font-size:13px',
@@ -218,14 +229,14 @@
     return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
-  function renderFallback(period) {
+  function renderFallback() {
     var lines = getHostLines();
     if (!lines) return;
     var card = findCard();
     var numberValue = card ? parseDomNumber(card.element.textContent) : null;
     lines.zh.textContent = numberValue !== null ? toChineseNumber(numberValue) : '中文数字：—';
     lines.rate.textContent = '缓存命中率：—';
-    lines.rate.title = period ? '接口数据暂不可用' : '';
+    lines.rate.title = '等待页面用量数据…';
   }
 
   function renderData(data) {
@@ -251,81 +262,7 @@
     }
   }
 
-  function addTokenCandidate(value, key, out) {
-    var token = String(value || '')
-      .trim()
-      .replace(/^Bearer\s+/i, '')
-      .replace(/^"|"$/g, '');
-    if (token.length < 16 || token.length > 4096) return;
-    if (/\s/.test(token)) return;
-    if (!/^[A-Za-z0-9._~+/=-]+$/.test(token)) return;
-
-    var score = 0;
-    if (/userToken/i.test(key)) score += 100;
-    else if (/token/i.test(key)) score += 40;
-    if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) score += 20;
-    out.push({ token: token, score: score });
-  }
-
-  function collectTokenValues(value, key, out) {
-    if (value == null) return;
-    if (typeof value === 'string') {
-      addTokenCandidate(value, key, out);
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (var i = 0; i < value.length; i++) collectTokenValues(value[i], key, out);
-      return;
-    }
-    if (typeof value === 'object') {
-      for (var prop in value) {
-        if (Object.prototype.hasOwnProperty.call(value, prop)) {
-          collectTokenValues(value[prop], key, out);
-        }
-      }
-    }
-  }
-
-  function collectTokens(storage, out) {
-    if (!storage) return;
-    for (var i = 0; i < storage.length; i++) {
-      var key = storage.key(i);
-      if (!key) continue;
-      if (/hcaptcha|captcha|turnstile|apdid|csrf|xsrf|apple|google/i.test(key)) continue;
-      var lowered = key.toLowerCase();
-      if (lowered.indexOf('token') === -1 && lowered !== 'usertoken') continue;
-
-      var raw = '';
-      try {
-        raw = storage.getItem(key) || '';
-      } catch (error) {
-        continue;
-      }
-
-      var trimmed = raw.trim();
-      if (/^[\[{]/.test(trimmed)) {
-        try {
-          collectTokenValues(JSON.parse(trimmed), key, out);
-          continue;
-        } catch (error) {
-          // 非 JSON，按普通字符串处理
-        }
-      }
-      addTokenCandidate(raw, key, out);
-    }
-  }
-
-  function getAuthToken() {
-    var candidates = [];
-    collectTokens(window.localStorage, candidates);
-    collectTokens(window.sessionStorage, candidates);
-    candidates.sort(function (a, b) {
-      return b.score - a.score;
-    });
-    return candidates.length ? candidates[0].token : '';
-  }
-
-  function parseAmount(value) {
+  function toBig(value) {
     try {
       return BigInt(String(value == null ? 0 : value).trim() || '0');
     } catch (error) {
@@ -350,64 +287,59 @@
     return json;
   }
 
-  async function fetchUsage(period) {
-    var parts = period.split('-');
-    var headers = { Accept: 'application/json' };
-    var token = getAuthToken();
-    if (token) headers.Authorization = 'Bearer ' + token;
-    var commit = document.querySelector('meta[name="commit-id"]');
-    if (commit && commit.content) headers['X-App-Version'] = commit.content;
+  function extractUsageData(json) {
+    var bizData = unwrapBizData(json);
+    var hit = 0n;
+    var miss = 0n;
+    var response = 0n;
+    var requests = 0n;
 
-    var controller = new AbortController();
-    state.controller = controller;
-    var timer = setTimeout(function () {
-      controller.abort();
-    }, FETCH_TIMEOUT_MS);
-
-    try {
-      var response = await fetch(
-        API_AMOUNT +
-          '?year=' +
-          encodeURIComponent(parts[0]) +
-          '&month=' +
-          encodeURIComponent(parts[1]),
-        {
-          credentials: 'include',
-          headers: headers,
-          signal: controller.signal
-        }
-      );
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      var json = await response.json();
-      var bizData = unwrapBizData(json);
-      var totals = bizData && Array.isArray(bizData.total) ? bizData.total : [];
-
-      var hit = 0n;
-      var miss = 0n;
-      var responseTokens = 0n;
-      for (var i = 0; i < totals.length; i++) {
-        var usage = totals[i] && totals[i].usage;
-        if (!Array.isArray(usage)) continue;
-        for (var j = 0; j < usage.length; j++) {
-          var item = usage[j];
-          var type = String((item && item.type) || '');
-          var amount = parseAmount(item && item.amount);
-          if (type === 'PROMPT_CACHE_HIT_TOKEN') hit += amount;
-          else if (type === 'PROMPT_CACHE_MISS_TOKEN') miss += amount;
-          else if (type === 'RESPONSE_TOKEN') responseTokens += amount;
-        }
+    var series = bizData && Array.isArray(bizData.series) ? bizData.series : [];
+    for (var i = 0; i < series.length; i++) {
+      var buckets = series[i] && Array.isArray(series[i].buckets) ? series[i].buckets : [];
+      for (var j = 0; j < buckets.length; j++) {
+        var usage = buckets[j] && buckets[j].usage;
+        if (!usage) continue;
+        hit += toBig(usage.PROMPT_CACHE_HIT_TOKEN);
+        miss += toBig(usage.PROMPT_CACHE_MISS_TOKEN);
+        response += toBig(usage.RESPONSE_TOKEN);
+        requests += toBig(usage.REQUEST);
       }
-
+    }
+    if (series.length > 0) {
       return {
-        period: period,
         hit: hit,
         miss: miss,
-        response: responseTokens,
-        total: hit + miss + responseTokens
+        response: response,
+        requests: requests,
+        total: hit + miss + response
       };
-    } finally {
-      clearTimeout(timer);
     }
+
+    var totals = bizData && Array.isArray(bizData.total) ? bizData.total : [];
+    for (var m = 0; m < totals.length; m++) {
+      var usageList = totals[m] && totals[m].usage;
+      if (!Array.isArray(usageList)) continue;
+      for (var k = 0; k < usageList.length; k++) {
+        var item = usageList[k];
+        var type = String((item && item.type) || '');
+        var amount = toBig(item && item.amount);
+        if (type === 'PROMPT_CACHE_HIT_TOKEN') hit += amount;
+        else if (type === 'PROMPT_CACHE_MISS_TOKEN') miss += amount;
+        else if (type === 'RESPONSE_TOKEN') response += amount;
+        else if (type === 'REQUEST') requests += amount;
+      }
+    }
+    if (totals.length > 0) {
+      return {
+        hit: hit,
+        miss: miss,
+        response: response,
+        requests: requests,
+        total: hit + miss + response
+      };
+    }
+    return null;
   }
 
   function logError(error) {
@@ -417,29 +349,41 @@
     console.error('[DeepSeek 用量增强]', error);
   }
 
-  async function refresh(period) {
-    if (state.controller) state.controller.abort();
-    renderFallback(period);
-
+  function handleApiMessage(url, body) {
+    var json;
     try {
-      var data = await fetchUsage(period);
-      if (state.currentPeriod !== period) return;
-      state.lastData = data;
-      renderData(data);
+      json = JSON.parse(body);
     } catch (error) {
-      if (error && error.name === 'AbortError') return;
-      if (state.currentPeriod !== period) return;
-      state.lastData = null;
-      logError(error);
-      renderFallback(period);
+      return;
     }
+
+    var data;
+    try {
+      data = extractUsageData(json);
+    } catch (error) {
+      logError(error);
+      return;
+    }
+    if (!data) return;
+
+    state.lastData = data;
+    console.debug(
+      '[DeepSeek 用量增强] 捕获用量接口:',
+      url,
+      '| 总Token:',
+      data.total.toString(),
+      '| 命中率:',
+      data.hit + data.miss > 0n
+        ? (Number((data.hit * 10000n) / (data.hit + data.miss)) / 100).toFixed(2) + '%'
+        : '—'
+    );
+    renderData(data);
   }
 
   function sync() {
     if (!isUsagePage()) {
       var stale = document.querySelector('[' + HOST_ATTR + ']');
       if (stale) stale.remove();
-      state.currentPeriod = '';
       state.lastData = null;
       return;
     }
@@ -448,23 +392,20 @@
     if (!card) return;
     ensureHost(card);
 
-    var period = getSelectedPeriod();
-    console.debug(
-      '[DeepSeek 用量增强] 定位卡片:',
-      card.element.textContent,
-      '| class:',
-      card.element.className || '',
-      '| 周期:',
-      period
-    );
-    if (period !== state.currentPeriod) {
-      state.currentPeriod = period;
-      state.lastData = null;
-      refresh(period);
-    } else if (state.lastData) {
+    if (state.lastCardText !== card.element.textContent) {
+      state.lastCardText = card.element.textContent;
+      console.debug(
+        '[DeepSeek 用量增强] 定位卡片:',
+        card.element.textContent,
+        '| class:',
+        card.element.className || ''
+      );
+    }
+
+    if (state.lastData) {
       renderData(state.lastData);
     } else {
-      renderFallback(period);
+      renderFallback();
     }
   }
 
@@ -473,17 +414,15 @@
     state.mutationTimer = setTimeout(sync, MUTATION_DEBOUNCE_MS);
   }
 
+  window.addEventListener('message', function (event) {
+    if (event.source !== window) return;
+    var message = event.data;
+    if (!message || message.source !== 'ds-usage-enh-hook' || message.type !== 'api-response') return;
+    handleApiMessage(message.url, message.body);
+  });
+
   var observer = new MutationObserver(scheduleSync);
   observer.observe(document.body, { childList: true, subtree: true });
-
-  document.addEventListener('change', function (event) {
-    var target = event.target;
-    if (target instanceof HTMLSelectElement && /^\d{4}-\d{1,2}$/.test(target.value || '')) {
-      state.currentPeriod = '';
-      state.lastData = null;
-      scheduleSync();
-    }
-  });
 
   window.addEventListener('popstate', scheduleSync);
 

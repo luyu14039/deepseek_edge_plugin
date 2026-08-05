@@ -6,6 +6,12 @@
   "content_scripts": [
     {
       "matches": ["https://platform.deepseek.com/*"],
+      "js": ["hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://platform.deepseek.com/*"],
       "js": ["number-zh.js", "content.js"],
       "run_at": "document_idle"
     }

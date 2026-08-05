@@ -7,10 +7,11 @@
 
 ## 功能原理
 
-- 通过页面同源调用平台私有接口 `/api/v0/usage/amount?year=&month=` 获取真实 Token 数据；
+- 通过主世界 hook 拦截页面自己的用量接口（`/api/v0/usage/amount` 或 `/api/v0/usage/by_api_key/amount`）响应，与页面显示的数据完全一致；
 - 命中率 = `PROMPT_CACHE_HIT_TOKEN / (PROMPT_CACHE_HIT_TOKEN + PROMPT_CACHE_MISS_TOKEN)`；
-- 接口不可用时自动回退到页面数字，命中率显示 `—`；
-- 切换月份、刷新页面、SPA 内导航后都会自动重新计算，不会重复插入。
+- 自动跟随页面周期切换（本月 / 30 天 / 近 7 天），无需解析页面控件；
+- 接口尚未返回时自动回退到页面数字，命中率显示 `—`；
+- 刷新页面、SPA 内导航后都会自动重新计算，不会重复插入。
 
 ## 安装
 
@@ -21,9 +22,10 @@
 
 ## 打包分发
 
-将以下 4 个文件打成 zip（文件位于 zip 根目录）即可分享给同事：
+将以下 5 个文件打成 zip（文件位于 zip 根目录）即可分享给同事：
 
 - `manifest.json`
+- `hook.js`
 - `number-zh.js`
 - `content.js`
 - `README.md`
@@ -40,4 +42,4 @@ node --test tests/number-zh.test.mjs
 
 - 平台用量接口是私有接口，DeepSeek 可能调整，届时命中率会显示 `—`，中文数字仍可回退显示；
 - 需要保持平台页面登录态；
-- v1 只做“总 Token”主卡片和当前月份聚合命中率，不包含多 Key、按模型拆分或设置页。
+- v1 只做“总 Token”主卡片和当前周期聚合命中率，不包含多 Key、按模型拆分或设置页。
