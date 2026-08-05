@@ -21,16 +21,6 @@
 3. 点击“加载解压缩的扩展”，选择本项目目录（包含 `manifest.json`）；
 4. 登录 `platform.deepseek.com`，打开用量页即可看到效果。
 
-## 打包分发
-
-将以下 5 个文件打成 zip（文件位于 zip 根目录）即可分享给同事：
-
-- `manifest.json`
-- `hook.js`
-- `number-zh.js`
-- `content.js`
-- `README.md`
-
 ## 运行单元测试
 
 需要 Node.js 18+：
