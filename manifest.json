@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "DeepSeek 用量增强",
+  "version": "0.1.0",
+  "description": "在 DeepSeek 开放平台用量页的总 Token 下方显示中文数字，并自动计算缓存命中率。",
+  "content_scripts": [
+    {
+      "matches": ["https://platform.deepseek.com/*"],
+      "js": ["number-zh.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
