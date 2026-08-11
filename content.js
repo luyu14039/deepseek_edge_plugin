@@ -388,6 +388,21 @@
       '  font-size: 11px;',
       '  color: var(--ds-weak);',
       '}',
+      '.ds-foot-text { flex: 1; min-width: 0; }',
+      '.ds-update {',
+      '  flex: none;',
+      '  font-size: 11px;',
+      '  font-weight: 500;',
+      '  color: var(--ds-accent);',
+      '  text-decoration: none;',
+      '  cursor: pointer;',
+      '  white-space: nowrap;',
+      '  overflow: hidden;',
+      '  text-overflow: ellipsis;',
+      '  max-width: 150px;',
+      '}',
+      '.ds-update:hover { text-decoration: underline; }',
+      '.ds-update[hidden] { display: none; }',
       '.ds-status {',
       '  position: relative;',
       '  width: 6px;',
@@ -484,7 +499,8 @@
       '      </div>',
       '      <div class="ds-foot">',
       '        <span class="ds-status"></span>',
-      '        <span>自动更新 · 跟随当前筛选周期</span>',
+      '        <span class="ds-foot-text">自动更新 · 跟随当前筛选周期</span>',
+      '        <a class="ds-update" href="#" role="button" hidden></a>',
       '      </div>',
       '    </div>',
       '  </div>',
@@ -509,8 +525,29 @@
       tipCalc: shadow.querySelector('.ds-tip-calc-value'),
       toggle: shadow.querySelector('.ds-toggle'),
       pill: shadow.querySelector('.ds-pill'),
-      pillText: shadow.querySelector('.ds-pill-text')
+      pillText: shadow.querySelector('.ds-pill-text'),
+      update: shadow.querySelector('.ds-update')
     };
+  }
+
+  function showUpdate(refs, info) {
+    refs.update.textContent = '发现新版本 v' + info.version;
+    refs.update.setAttribute('data-url', info.url || '');
+    refs.update.title = info.notes ? '查看更新说明' : '打开 GitHub Releases';
+    refs.update.hidden = false;
+  }
+
+  function requestUpdateCheck(refs) {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    try {
+      chrome.runtime.sendMessage({ type: 'CHECK_UPDATE' }, function (info) {
+        if (chrome.runtime.lastError) return;
+        if (!info || !info.url) return;
+        showUpdate(refs, info);
+      });
+    } catch (error) {
+      // 忽略检查失败
+    }
   }
 
   function measureExpandedHeight(wrap) {
@@ -600,6 +637,19 @@
       refs.pill.addEventListener('click', function () {
         setCollapsed(refs, false);
       });
+      refs.update.addEventListener('click', function (event) {
+        event.preventDefault();
+        var url = refs.update.getAttribute('data-url') || '';
+        try {
+          chrome.runtime.sendMessage({ type: 'OPEN_RELEASES', url: url }, function () {});
+        } catch (error) {
+          // 忽略打开失败
+        }
+      });
+      if (!host.__dsUpdateChecked) {
+        host.__dsUpdateChecked = true;
+        requestUpdateCheck(refs);
+      }
     }
     return getCardRefs(host);
   }
