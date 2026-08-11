@@ -3,6 +3,10 @@
 
   var HOST_ATTR = 'data-ds-usage-enh';
   var MUTATION_DEBOUNCE_MS = 250;
+  var EXPANDED_WIDTH = 320;
+  var COLLAPSED_WIDTH = 148;
+  var PILL_HEIGHT = 38;
+  var TRANSITION_MS = 260;
 
   var state = {
     lastData: null,
@@ -10,8 +14,17 @@
     cache: {},
     mutationTimer: 0,
     lastPath: location.pathname,
-    lastError: ''
+    lastError: '',
+    rateAnim: 0,
+    renderedRate: null,
+    toggling: false
   };
+
+  try {
+    state.collapsed = localStorage.getItem('ds-usage-enh-collapsed') === '1';
+  } catch (error) {
+    // 忽略 localStorage 不可用
+  }
 
   function isUsagePage() {
     return location.pathname === '/usage' || location.pathname.indexOf('/usage/') === 0;
@@ -68,6 +81,27 @@
 
   function formatInt(value) {
     return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function formatCompact(value) {
+    var n = toBig(value);
+    if (n < 0n) return formatInt(n);
+    if (n < 10000n) return formatInt(n);
+
+    var unit = 1000000000000n;
+    var name = '万亿';
+    if (n < 1000000000000n) {
+      unit = 100000000n;
+      name = '亿';
+    }
+    if (n < 100000000n) {
+      unit = 10000n;
+      name = '万';
+    }
+
+    var num = Number(n) / Number(unit);
+    var text = num >= 100 ? String(Math.round(num)) : (Math.round(num * 100) / 100).toString();
+    return text + name;
   }
 
   function toBig(value) {
@@ -160,160 +194,303 @@
       '  bottom: 20px;',
       '  z-index: 2147483646;',
       '  width: 320px;',
-      '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;',
       '  color-scheme: light dark;',
-      '  --ds-bg: rgba(255,255,255,0.86);',
-      '  --ds-border: rgba(15,23,42,0.08);',
-      '  --ds-text: #0f172a;',
-      '  --ds-muted: #64748b;',
-      '  --ds-accent: #2563eb;',
-      '  --ds-accent2: #22d3ee;',
-      '  --ds-shadow: 0 12px 32px rgba(15,23,42,0.16);',
+      '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;',
+      '  --ds-bg: #242527;',
+      '  --ds-text: rgba(255,255,255,.92);',
+      '  --ds-muted: rgba(255,255,255,.58);',
+      '  --ds-weak: rgba(255,255,255,.40);',
+      '  --ds-border: rgba(255,255,255,.08);',
+      '  --ds-border-strong: rgba(255,255,255,.16);',
+      '  --ds-divider: rgba(255,255,255,.07);',
+      '  --ds-track: rgba(255,255,255,.06);',
+      '  --ds-accent: #58a6ff;',
+      '  --ds-accent-soft: rgba(88,166,255,.85);',
+      '  --ds-shadow: 0 8px 28px rgba(0,0,0,.35);',
+      '  --ds-tip-bg: #2f3136;',
+      '  animation: ds-enter 200ms cubic-bezier(.2,.8,.2,1) both;',
+      '  transition: width 260ms cubic-bezier(.2,.8,.2,1), height 260ms cubic-bezier(.2,.8,.2,1);',
       '}',
-      '@media (prefers-color-scheme: dark) {',
+      '@media (prefers-color-scheme: light) {',
       '  .ds-wrap {',
-      '    --ds-bg: rgba(15,23,42,0.90);',
-      '    --ds-border: rgba(255,255,255,0.10);',
-      '    --ds-text: #e2e8f0;',
-      '    --ds-muted: #94a3b8;',
-      '    --ds-shadow: 0 12px 32px rgba(0,0,0,0.45);',
+      '    --ds-bg: #ffffff;',
+      '    --ds-text: rgba(15,23,42,.92);',
+      '    --ds-muted: rgba(15,23,42,.58);',
+      '    --ds-weak: rgba(15,23,42,.40);',
+      '    --ds-border: rgba(15,23,42,.08);',
+      '    --ds-border-strong: rgba(15,23,42,.16);',
+      '    --ds-divider: rgba(15,23,42,.07);',
+      '    --ds-track: rgba(15,23,42,.06);',
+      '    --ds-accent: #2563eb;',
+      '    --ds-accent-soft: rgba(37,99,235,.75);',
+      '    --ds-shadow: 0 8px 24px rgba(15,23,42,.12);',
+      '    --ds-tip-bg: #f4f4f5;',
       '  }',
+      '}',
+      '.ds-wrap.collapsed { width: 148px; height: 38px; }',
+      '@keyframes ds-enter {',
+      '  from { opacity: 0; transform: translateY(8px) scale(.985); }',
+      '  to { opacity: 1; transform: none; }',
       '}',
       '.ds-card {',
       '  background: var(--ds-bg);',
       '  border: 1px solid var(--ds-border);',
-      '  border-radius: 16px;',
+      '  border-radius: 14px;',
       '  box-shadow: var(--ds-shadow);',
-      '  backdrop-filter: blur(14px);',
-      '  -webkit-backdrop-filter: blur(14px);',
       '  overflow: hidden;',
-      '  transition: box-shadow .2s ease, border-radius .2s ease;',
+      '  transition: opacity 160ms ease;',
       '}',
-      '.ds-card:hover { box-shadow: 0 16px 40px rgba(15,23,42,0.20); }',
-      '@media (prefers-color-scheme: dark) {',
-      '  .ds-card:hover { box-shadow: 0 16px 40px rgba(0,0,0,0.55); }',
-      '}',
+      '.ds-wrap.collapsed .ds-card { opacity: 0; pointer-events: none; }',
       '.ds-head {',
       '  display: flex;',
       '  align-items: center;',
       '  gap: 8px;',
-      '  padding: 12px 14px;',
-      '  border-bottom: 1px solid var(--ds-border);',
-      '}',
-      '.ds-dot {',
-      '  width: 8px;',
-      '  height: 8px;',
-      '  border-radius: 50%;',
-      '  background: linear-gradient(135deg, var(--ds-accent), var(--ds-accent2));',
-      '  box-shadow: 0 0 8px var(--ds-accent);',
-      '  flex: none;',
+      '  padding: 9px 12px;',
+      '  border-bottom: 1px solid var(--ds-divider);',
       '}',
       '.ds-title {',
       '  flex: 1;',
-      '  font-size: 13px;',
-      '  font-weight: 600;',
+      '  font-size: 12.5px;',
+      '  font-weight: 500;',
       '  color: var(--ds-text);',
+      '  letter-spacing: .01em;',
       '}',
       '.ds-toggle {',
       '  border: 0;',
       '  background: transparent;',
-      '  color: var(--ds-muted);',
-      '  font-size: 16px;',
+      '  color: var(--ds-weak);',
+      '  font-size: 14px;',
       '  line-height: 1;',
       '  cursor: pointer;',
-      '  padding: 2px 7px;',
+      '  padding: 3px 7px;',
       '  border-radius: 6px;',
-      '  transition: background .15s ease, color .15s ease;',
+      '  transition: background 150ms ease, color 150ms ease;',
       '}',
       '.ds-toggle:hover { background: var(--ds-border); color: var(--ds-text); }',
-      '.ds-body { padding: 14px; }',
+      '.ds-body { padding: 12px 14px 13px; }',
       '.ds-label {',
-      '  font-size: 12px;',
-      '  color: var(--ds-muted);',
-      '  margin-bottom: 5px;',
+      '  font-size: 11px;',
+      '  color: var(--ds-weak);',
+      '  margin-bottom: 6px;',
+      '  letter-spacing: .02em;',
       '}',
+      '.ds-rate-row .ds-label { margin: 0; }',
+      '.ds-zh-row { display: flex; align-items: flex-start; gap: 8px; }',
       '.ds-zh {',
-      '  font-size: 17px;',
+      '  flex: 1;',
+      '  min-width: 0;',
+      '  font-size: 22px;',
       '  font-weight: 600;',
       '  color: var(--ds-text);',
-      '  line-height: 1.5;',
-      '  letter-spacing: 0.5px;',
+      '  line-height: 1.35;',
+      '  letter-spacing: .02em;',
       '  word-break: break-all;',
+      '  display: -webkit-box;',
+      '  -webkit-box-orient: vertical;',
+      '  -webkit-line-clamp: 2;',
+      '  overflow: hidden;',
+      '}',
+      '.ds-zh--md { font-size: 20px; }',
+      '.ds-zh--sm { font-size: 18px; }',
+      '.ds-zh-tag {',
+      '  flex: none;',
+      '  margin-top: 3px;',
+      '  font-size: 10px;',
+      '  color: var(--ds-weak);',
+      '  border: 1px solid var(--ds-border);',
+      '  border-radius: 999px;',
+      '  padding: 1px 7px;',
+      '  letter-spacing: .04em;',
+      '  white-space: nowrap;',
       '}',
       '.ds-ar {',
       '  font-size: 12px;',
       '  color: var(--ds-muted);',
-      '  margin-top: 4px;',
+      '  margin-top: 6px;',
       '  font-variant-numeric: tabular-nums;',
+      '  letter-spacing: .01em;',
       '}',
-      '.ds-divider { height: 1px; background: var(--ds-border); margin: 13px 0; }',
-      '.ds-rate-row { display: flex; align-items: baseline; justify-content: space-between; }',
+      '.ds-divider { height: 1px; background: var(--ds-divider); margin: 13px 0 12px; }',
+      '.ds-rate-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }',
       '.ds-rate {',
-      '  font-size: 20px;',
-      '  font-weight: 700;',
+      '  font-size: 21px;',
+      '  font-weight: 600;',
       '  color: var(--ds-text);',
       '  font-variant-numeric: tabular-nums;',
+      '  letter-spacing: -.01em;',
       '}',
       '.ds-bar {',
-      '  height: 6px;',
-      '  border-radius: 3px;',
-      '  background: var(--ds-border);',
-      '  margin-top: 10px;',
+      '  height: 5px;',
+      '  border-radius: 999px;',
+      '  background: var(--ds-track);',
+      '  margin-top: 9px;',
       '  overflow: hidden;',
       '}',
       '.ds-bar-fill {',
       '  height: 100%;',
       '  width: 0%;',
-      '  border-radius: 3px;',
-      '  background: linear-gradient(90deg, var(--ds-accent), var(--ds-accent2));',
-      '  transition: width .45s ease;',
+      '  border-radius: 999px;',
+      '  background: var(--ds-accent);',
       '}',
-      '.ds-meta {',
-      '  font-size: 12px;',
+      '.ds-meta-row {',
+      '  display: flex;',
+      '  align-items: center;',
+      '  justify-content: space-between;',
+      '  gap: 8px;',
+      '  margin-top: 9px;',
+      '  font-size: 11.5px;',
       '  color: var(--ds-muted);',
-      '  margin-top: 8px;',
       '  font-variant-numeric: tabular-nums;',
       '}',
+      '.ds-info {',
+      '  position: relative;',
+      '  flex: none;',
+      '  color: var(--ds-weak);',
+      '  font-size: 12px;',
+      '  line-height: 1;',
+      '  padding: 3px 4px;',
+      '  margin: -3px -4px;',
+      '  cursor: help;',
+      '  border-radius: 4px;',
+      '  outline: none;',
+      '}',
+      '.ds-info:hover, .ds-info:focus { color: var(--ds-muted); }',
+      '.ds-tip {',
+      '  position: absolute;',
+      '  right: -3px;',
+      '  bottom: calc(100% + 8px);',
+      '  width: 250px;',
+      '  padding: 9px 11px;',
+      '  background: var(--ds-tip-bg);',
+      '  border: 1px solid var(--ds-border);',
+      '  border-radius: 10px;',
+      '  box-shadow: var(--ds-shadow);',
+      '  opacity: 0;',
+      '  transform: translateY(4px);',
+      '  pointer-events: none;',
+      '  transition: opacity 160ms ease, transform 160ms ease;',
+      '  z-index: 1;',
+      '}',
+      '.ds-info:hover .ds-tip, .ds-info:focus .ds-tip {',
+      '  opacity: 1;',
+      '  transform: none;',
+      '  pointer-events: auto;',
+      '}',
+      '.ds-tip-line { font-size: 11px; line-height: 1.5; color: var(--ds-muted); white-space: normal; }',
+      '.ds-tip-line + .ds-tip-line { margin-top: 3px; }',
+      '.ds-tip-calc { color: var(--ds-text); font-variant-numeric: tabular-nums; }',
+      '.ds-tip-calc:empty { display: none; }',
       '.ds-foot {',
       '  display: flex;',
       '  align-items: center;',
       '  gap: 6px;',
       '  margin-top: 12px;',
       '  font-size: 11px;',
-      '  color: var(--ds-muted);',
+      '  color: var(--ds-weak);',
       '}',
       '.ds-status {',
+      '  position: relative;',
       '  width: 6px;',
       '  height: 6px;',
       '  border-radius: 50%;',
-      '  background: #22c55e;',
-      '  box-shadow: 0 0 6px #22c55e;',
+      '  background: var(--ds-accent-soft);',
       '  flex: none;',
       '}',
-      '.ds-wrap.collapsed .ds-body { display: none; }',
-      '.ds-wrap.collapsed .ds-card { border-radius: 999px; }',
-      '.ds-wrap.collapsed .ds-head { border-bottom: 0; }',
+      '.ds-status::after {',
+      '  content: "";',
+      '  position: absolute;',
+      '  inset: 0;',
+      '  border-radius: 50%;',
+      '  background: var(--ds-accent-soft);',
+      '  animation: ds-pulse 1800ms ease-out 1200ms infinite;',
+      '}',
+      '@keyframes ds-pulse {',
+      '  0% { transform: scale(1); opacity: 0; }',
+      '  25% { opacity: .45; }',
+      '  60% { transform: scale(1.8); opacity: 0; }',
+      '  100% { transform: scale(1.8); opacity: 0; }',
+      '}',
+      '.ds-pill {',
+      '  position: absolute;',
+      '  left: 0;',
+      '  right: 0;',
+      '  bottom: 0;',
+      '  height: 38px;',
+      '  display: flex;',
+      '  align-items: center;',
+      '  justify-content: center;',
+      '  gap: 7px;',
+      '  background: var(--ds-bg);',
+      '  border: 1px solid var(--ds-border);',
+      '  border-radius: 999px;',
+      '  box-shadow: var(--ds-shadow);',
+      '  opacity: 0;',
+      '  pointer-events: none;',
+      '  transition: opacity 160ms ease, border-color 160ms ease;',
+      '  cursor: pointer;',
+      '}',
+      '.ds-wrap.collapsed .ds-pill { opacity: 1; pointer-events: auto; }',
+      '.ds-pill:hover { border-color: var(--ds-border-strong); }',
+      '.ds-pill-dot {',
+      '  width: 6px;',
+      '  height: 6px;',
+      '  border-radius: 50%;',
+      '  background: var(--ds-accent-soft);',
+      '  flex: none;',
+      '}',
+      '.ds-pill-text {',
+      '  font-size: 12.5px;',
+      '  font-weight: 600;',
+      '  color: var(--ds-text);',
+      '  font-variant-numeric: tabular-nums;',
+      '  letter-spacing: .01em;',
+      '  white-space: nowrap;',
+      '}',
+      '.ds-fade-out { opacity: 0; transform: translateY(-3px); transition: opacity 90ms ease, transform 90ms ease; }',
+      '.ds-fade-in { animation: ds-fade-in 180ms ease; }',
+      '@keyframes ds-fade-in {',
+      '  from { opacity: 0; transform: translateY(3px); }',
+      '  to { opacity: 1; transform: none; }',
+      '}',
       '</style>',
       '<div class="ds-wrap' + (state.collapsed ? ' collapsed' : '') + '">',
       '  <div class="ds-card">',
       '    <div class="ds-head">',
-      '      <span class="ds-dot"></span>',
-      '      <span class="ds-title">DeepSeek 用量</span>',
-      '      <button class="ds-toggle" type="button" title="收起/展开">' + (state.collapsed ? '+' : '−') + '</button>',
+      '      <span class="ds-title">DeepSeek 用量助手</span>',
+      '      <button class="ds-toggle" type="button" title="' + (state.collapsed ? '展开' : '收起') + '">' + (state.collapsed ? '+' : '−') + '</button>',
       '    </div>',
       '    <div class="ds-body">',
-      '      <div class="ds-label">总 Token（中文）</div>',
-      '      <div class="ds-zh">等待数据…</div>',
+      '      <div class="ds-label">总 Token</div>',
+      '      <div class="ds-zh-row">',
+      '        <div class="ds-zh">等待数据…</div>',
+      '        <span class="ds-zh-tag">中文读数</span>',
+      '      </div>',
       '      <div class="ds-ar"></div>',
       '      <div class="ds-divider"></div>',
       '      <div class="ds-rate-row">',
-      '        <span class="ds-label" style="margin:0">缓存命中率</span>',
+      '        <span class="ds-label">缓存命中率</span>',
       '        <span class="ds-rate">—</span>',
       '      </div>',
       '      <div class="ds-bar"><div class="ds-bar-fill"></div></div>',
-      '      <div class="ds-meta"></div>',
-      '      <div class="ds-foot"><span class="ds-status"></span><span>跟随页面当前周期 · 自动更新</span></div>',
+      '      <div class="ds-meta-row">',
+      '        <span class="ds-meta"></span>',
+      '        <span class="ds-info" tabindex="0" aria-label="命中率计算说明">',
+      '          ⓘ',
+      '          <span class="ds-tip">',
+      '            <span class="ds-tip-line">缓存命中率 = Cache Hit Tokens ÷ Input Tokens</span>',
+      '            <span class="ds-tip-line ds-tip-calc ds-tip-calc-value"></span>',
+      '          </span>',
+      '        </span>',
+      '      </div>',
+      '      <div class="ds-foot">',
+      '        <span class="ds-status"></span>',
+      '        <span>自动更新 · 跟随当前筛选周期</span>',
+      '      </div>',
       '    </div>',
+      '  </div>',
+      '  <div class="ds-pill">',
+      '    <span class="ds-pill-dot"></span>',
+      '    <span class="ds-pill-text">DS</span>',
       '  </div>',
       '</div>'
     ].join('\n');
@@ -323,13 +500,86 @@
     var shadow = host.shadowRoot;
     return {
       wrap: shadow.querySelector('.ds-wrap'),
+      card: shadow.querySelector('.ds-card'),
       zh: shadow.querySelector('.ds-zh'),
       ar: shadow.querySelector('.ds-ar'),
       rate: shadow.querySelector('.ds-rate'),
       barFill: shadow.querySelector('.ds-bar-fill'),
       meta: shadow.querySelector('.ds-meta'),
-      toggle: shadow.querySelector('.ds-toggle')
+      tipCalc: shadow.querySelector('.ds-tip-calc-value'),
+      toggle: shadow.querySelector('.ds-toggle'),
+      pill: shadow.querySelector('.ds-pill'),
+      pillText: shadow.querySelector('.ds-pill-text')
     };
+  }
+
+  function measureExpandedHeight(wrap) {
+    var prevTransition = wrap.style.transition;
+    var prevHeight = wrap.style.height;
+    var prevWidth = wrap.style.width;
+    wrap.style.transition = 'none';
+    wrap.style.height = 'auto';
+    wrap.style.width = EXPANDED_WIDTH + 'px';
+    var height = wrap.offsetHeight;
+    wrap.style.transition = prevTransition;
+    wrap.style.height = prevHeight;
+    wrap.style.width = prevWidth;
+    return height;
+  }
+
+  function setCollapsed(refs, collapsed) {
+    if (state.toggling || state.collapsed === collapsed) return;
+    state.toggling = true;
+    state.collapsed = collapsed;
+    try {
+      localStorage.setItem('ds-usage-enh-collapsed', collapsed ? '1' : '0');
+    } catch (error) {
+      // 忽略 localStorage 不可用
+    }
+
+    var wrap = refs.wrap;
+    var card = refs.card;
+    var pill = refs.pill;
+
+    if (collapsed) {
+      wrap.classList.remove('collapsed');
+      wrap.style.width = EXPANDED_WIDTH + 'px';
+      wrap.style.height = 'auto';
+      card.style.opacity = '1';
+      pill.style.opacity = '0';
+      void wrap.offsetHeight;
+      wrap.style.height = wrap.offsetHeight + 'px';
+      void wrap.offsetHeight;
+      wrap.style.width = COLLAPSED_WIDTH + 'px';
+      wrap.style.height = PILL_HEIGHT + 'px';
+      card.style.opacity = '0';
+      pill.style.opacity = '1';
+      wrap.classList.add('collapsed');
+    } else {
+      wrap.classList.add('collapsed');
+      wrap.style.width = COLLAPSED_WIDTH + 'px';
+      wrap.style.height = PILL_HEIGHT + 'px';
+      card.style.opacity = '0';
+      pill.style.opacity = '1';
+      void wrap.offsetHeight;
+      wrap.style.height = measureExpandedHeight(wrap) + 'px';
+      void wrap.offsetHeight;
+      wrap.style.width = EXPANDED_WIDTH + 'px';
+      card.style.opacity = '1';
+      pill.style.opacity = '0';
+      wrap.classList.remove('collapsed');
+    }
+
+    refs.toggle.textContent = collapsed ? '+' : '−';
+    refs.toggle.title = collapsed ? '展开' : '收起';
+
+    setTimeout(function () {
+      wrap.style.width = '';
+      wrap.style.height = '';
+      card.style.opacity = '';
+      pill.style.opacity = '';
+      state.toggling = false;
+    }, TRANSITION_MS + 80);
   }
 
   function createCard() {
@@ -345,12 +595,64 @@
       host.__dsToggleBound = true;
       var refs = getCardRefs(host);
       refs.toggle.addEventListener('click', function () {
-        state.collapsed = !state.collapsed;
-        refs.wrap.classList.toggle('collapsed', state.collapsed);
-        refs.toggle.textContent = state.collapsed ? '+' : '−';
+        setCollapsed(refs, !state.collapsed);
+      });
+      refs.pill.addEventListener('click', function () {
+        setCollapsed(refs, false);
       });
     }
     return getCardRefs(host);
+  }
+
+  function setZh(refs, text) {
+    refs.zh.classList.remove('ds-zh--md', 'ds-zh--sm');
+    if (text.length > 14) refs.zh.classList.add('ds-zh--sm');
+    else if (text.length > 8) refs.zh.classList.add('ds-zh--md');
+    setTextAnimated(refs.zh, text);
+  }
+
+  function setTextAnimated(el, text) {
+    var next = String(text);
+    if (el.textContent === next && !el.classList.contains('ds-fade-out')) return;
+    if (el.__dsFadeTimer) clearTimeout(el.__dsFadeTimer);
+    el.classList.remove('ds-fade-in');
+    el.classList.add('ds-fade-out');
+    el.__dsFadeTimer = setTimeout(function () {
+      el.textContent = next;
+      el.classList.remove('ds-fade-out');
+      el.classList.add('ds-fade-in');
+      el.__dsFadeTimer = setTimeout(function () {
+        el.classList.remove('ds-fade-in');
+      }, 200);
+    }, 90);
+  }
+
+  function animateRate(refs, percent) {
+    if (state.rateAnim) cancelAnimationFrame(state.rateAnim);
+    var duration = 520;
+    var start = null;
+
+    function frame(timestamp) {
+      if (start === null) start = timestamp;
+      var progress = Math.min(1, (timestamp - start) / duration);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      var value = percent * eased;
+      refs.rate.textContent = value.toFixed(2) + '%';
+      refs.barFill.style.width = Math.min(100, value) + '%';
+      if (progress < 1) {
+        state.rateAnim = requestAnimationFrame(frame);
+      } else {
+        state.rateAnim = 0;
+        refs.rate.textContent = percent.toFixed(2) + '%';
+        refs.barFill.style.width = Math.min(100, percent) + '%';
+      }
+    }
+
+    state.rateAnim = requestAnimationFrame(frame);
+  }
+
+  function updatePill(refs, total) {
+    refs.pillText.textContent = formatCompact(total);
   }
 
   function renderWaiting(refs) {
@@ -359,34 +661,61 @@
     refs.rate.textContent = '—';
     refs.barFill.style.width = '0%';
     refs.meta.textContent = '正在等待页面用量接口…';
+    refs.tipCalc.textContent = '';
+    refs.pillText.textContent = 'DS';
+    state.renderedRate = null;
+    if (state.rateAnim) {
+      cancelAnimationFrame(state.rateAnim);
+      state.rateAnim = 0;
+    }
   }
 
   function renderDomOnly(refs, value) {
-    refs.zh.textContent = toChineseNumber(value);
-    refs.ar.textContent = '共 ' + formatInt(value) + ' Token';
+    setZh(refs, toChineseNumber(value));
+    setTextAnimated(refs.ar, formatInt(value) + ' Tokens');
+    updatePill(refs, value);
     refs.rate.textContent = '—';
     refs.barFill.style.width = '0%';
     refs.meta.textContent = '当前周期数据尚未捕获，请再次切换周期';
+    refs.tipCalc.textContent = '';
+    state.renderedRate = null;
+    if (state.rateAnim) {
+      cancelAnimationFrame(state.rateAnim);
+      state.rateAnim = 0;
+    }
   }
 
   function renderData(refs, data) {
-    refs.zh.textContent = toChineseNumber(data.total);
-    refs.ar.textContent = '共 ' + formatInt(data.total) + ' Token';
+    setZh(refs, toChineseNumber(data.total));
+    setTextAnimated(refs.ar, formatInt(data.total) + ' Tokens');
+    updatePill(refs, data.total);
 
     var input = data.hit + data.miss;
     if (input === 0n) {
+      if (state.rateAnim) {
+        cancelAnimationFrame(state.rateAnim);
+        state.rateAnim = 0;
+      }
       refs.rate.textContent = '—';
       refs.barFill.style.width = '0%';
       refs.meta.textContent = '当前周期暂无输入 Token';
+      refs.tipCalc.textContent = '';
+      state.renderedRate = null;
       return;
     }
 
-    var basis = (data.hit * 10000n) / input;
-    var percent = Number(basis) / 100;
-    refs.rate.textContent = percent.toFixed(2) + '%';
-    refs.barFill.style.width = Math.min(100, percent) + '%';
-    refs.meta.textContent =
-      '命中 ' + formatInt(data.hit) + ' · 输入 ' + formatInt(input);
+    var percent = Number((data.hit * 10000n) / input) / 100;
+    var percentText = percent.toFixed(2) + '%';
+    refs.meta.textContent = '命中 ' + formatInt(data.hit) + ' · 输入 ' + formatInt(input);
+    refs.tipCalc.textContent = formatInt(data.hit) + ' ÷ ' + formatInt(input) + ' ≈ ' + percentText;
+
+    if (state.renderedRate === null || state.renderedRate !== percent) {
+      state.renderedRate = percent;
+      animateRate(refs, percent);
+    } else if (!state.rateAnim) {
+      refs.rate.textContent = percentText;
+      refs.barFill.style.width = Math.min(100, percent) + '%';
+    }
   }
 
   function logError(error) {
