@@ -9,6 +9,12 @@
 - 灰黑卡片配色贴合 DeepSeek 原生页面，自动跟随浅色/深色主题；
 - 自动检查 GitHub Releases 更新（每天最多一次），发现新版本时在卡片底部低调提醒。
 
+## 效果预览
+
+![实际效果](docs/usage-example.png)
+
+卡片以中文读数作为核心视觉锚点，下方展示缓存命中率、命中/输入明细与进度条。
+
 ## 功能原理
 
 - 通过主世界 hook 拦截页面自己的用量接口（`/api/v0/usage/amount` 或 `/api/v0/usage/by_api_key/amount`）响应，与页面显示的数据完全一致；
@@ -18,6 +24,8 @@
 - 刷新页面、SPA 内导航后都会自动重新计算，不会重复插入。
 
 ## 安装
+
+![Edge 安装教程](docs/install-tutorial.png)
 
 1. 打开 Edge/Chrome 扩展管理页（`edge://extensions` 或 `chrome://extensions`）；
 2. 开启“开发人员模式”；
